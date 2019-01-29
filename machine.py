@@ -1,27 +1,45 @@
-from caproto.server import pvproperty
+from caproto.server import pvproperty, PVGroup
 from caproto import ChannelType
 
-from pvdict import PVDict
+import curio
 
-class Machine(PVDict):
-    def __init__(self, id, name):
-        super().__init__(f'machine:{id}:')
+class MachinePVs(PVGroup):
+    name = pvproperty(
+            read_only = True,
+            dtype = ChannelType.STRING)
+    startup = pvproperty(
+            dtype = ChannelType.INT)
+    used_by = pvproperty(
+            dtype = ChannelType.INT)
+
+    def __init__(self, prefix, id, machine):
+        super().__init__(f'{prefix}machine:{id}:')
+        self.id = id
+        self.machine = machine
+
+    @name.startup
+    async def name(self, instance, value):
+        await self.name.write(self.machine.name)
+
+    @startup.putter
+    async def startup(self, instance, value):
+        print(f'{self.name.value} is starting up')
+
+    @used_by.startup
+    async def used_by(self, instance, value):
+        return self.machine.used_by
+
+    #async def update(self, instance):
+    #    await self.used_by.write(value = self.machine.used_by)
+
+class Machine:
+    def __init__(self, prefix, id, name):
         self.id = id
         self.name = name
-        self.log = None
-        self.used_by = None
-        self.pvprops['name'] = pvproperty(
-                name = f'{self.pvprefix}name',
-                value = self.name,
-                read_only = True,
-                dtype = ChannelType.STRING)
-        self.pvprops['startup'] = pvproperty(
-                name = f'{self.pvprefix}startup',
-                value = 0,
-                dtype = ChannelType.INT,
-                doc = self,
-                put = Machine.startup)
+        self.pvs = MachinePVs(prefix, id, self)
+        self.used_by = -1
 
-    async def startup(self, instance, value):
-        machine = instance.__doc__
-        print(f"{machine.name} is starting up")
+    async def set_user(self, user):
+        self.used_by = user
+        #curio.run(pvs.update)
+        await self.pvs.used_by.write(value = self.used_by)
